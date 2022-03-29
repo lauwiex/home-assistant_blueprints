@@ -9,7 +9,9 @@ blueprint:
       name: Remote
       description: Senic remote
       selector:
-        action: {}
+        entity:
+          domain: sensor
+     
     button_one_single_press:
       name: 1 button - Single press
       description: Action to run on a single press of the button 1
