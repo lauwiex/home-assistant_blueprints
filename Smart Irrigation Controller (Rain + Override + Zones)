@@ -1,39 +1,48 @@
-blueprint:
-  name: Smart Irrigation Controller (Clean + Actionable)
-  domain: automation
-
-  input:
-    notify_device:
-      name: Notificatie device
-      selector:
-        device: {}
-
-    sprinkler_left:
-      selector:
-        entity:
-          domain: switch
-
-    sprinkler_right:
-      selector:
-        entity:
-          domain: switch
+alias: Tuin sproeien avond (scalable smart)
+mode: single
 
 trigger:
   - platform: time
     at: "21:00:00"
 
+variables:
+
+  # -------------------------
+  # ⚙️ INSTELBAAR
+  # -------------------------
+  zone_duration: 00:15:00
+  zone_pause: 00:01:00
+
+  zones:
+    - entity: switch.sprinkler_links
+      name: Zone 1
+    - entity: switch.sprinkler_rechts
+      name: Zone 2
+    # optioneel uitbreiden:
+    # - entity: switch.sprinkler_achter
+    #   name: Zone 3
+    # - entity: switch.sprinkler_voortuin
+    #   name: Zone 4
+
+  rain1d: "{{ states('sensor.bergschenhoek_rain_1d') | float(0) }}"
+  rain1d_max: "{{ states('sensor.bergschenhoek_maximum_rain_1d') | float(0) }}"
+  rain2d_max: "{{ states('sensor.buienradar_maximum_rain_2d') | float(0) }}"
+
 action:
 
+  # -------------------------
+  # 🌧️ SKIP LOGICA
+  # -------------------------
   - choose:
 
-      # ---------------- SEIZOEN ----------------
       - conditions:
           - condition: template
-            value_template: "{{ now().month < 5 or now().month > 10 }}"
+            value_template: >
+              {{ now().month < 5 or now().month > 10 }}
         sequence:
           - action: notify.send_message
             target:
-              device_id: !input notify_device
+              device_id: 06cf94214bf3a2df1f8538c54aedb010
             data:
               title: Sprinkler overgeslagen
               message: Buiten seizoen (mei–okt)
@@ -42,57 +51,46 @@ action:
                   - action: START_SPRINKLER
                     title: Toch sproeien
 
-      # ---------------- REGEN 1D ----------------
       - conditions:
-          - condition: numeric_state
-            entity_id: sensor.bergschenhoek_rain_1d
-            above: 1.5
+          - condition: template
+            value_template: "{{ rain1d > 1.5 }}"
         sequence:
           - action: notify.send_message
             target:
-              device_id: !input notify_device
+              device_id: 06cf94214bf3a2df1f8538c54aedb010
             data:
               title: Sprinkler overgeslagen
-              message: >
-                Te nat: {{ states('sensor.bergschenhoek_rain_1d') }} mm
+              message: "Te nat: {{ rain1d }} mm"
               data:
                 actions:
                   - action: START_SPRINKLER
                     title: Toch sproeien
 
-      # ---------------- REGEN VANDAAG ----------------
       - conditions:
-          - condition: numeric_state
-            entity_id: sensor.bergschenhoek_maximum_rain_1d
-            above: 0.4
+          - condition: template
+            value_template: "{{ rain1d_max > 0.4 }}"
         sequence:
           - action: notify.send_message
             target:
-              device_id: !input notify_device
+              device_id: 06cf94214bf3a2df1f8538c54aedb010
             data:
               title: Sprinkler overgeslagen
-              message: >
-                Regen verwacht vandaag:
-                {{ states('sensor.bergschenhoek_maximum_rain_1d') }} mm
+              message: "Regen verwacht vandaag: {{ rain1d_max }} mm"
               data:
                 actions:
                   - action: START_SPRINKLER
                     title: Toch sproeien
 
-      # ---------------- REGEN 2D ----------------
       - conditions:
-          - condition: numeric_state
-            entity_id: sensor.buienradar_maximum_rain_2d
-            above: 0.8
+          - condition: template
+            value_template: "{{ rain2d_max > 0.8 }}"
         sequence:
           - action: notify.send_message
             target:
-              device_id: !input notify_device
+              device_id: 06cf94214bf3a2df1f8538c54aedb010
             data:
               title: Sprinkler overgeslagen
-              message: >
-                Regen komende 2 dagen:
-                {{ states('sensor.buienradar_maximum_rain_2d') }} mm
+              message: "Regen 2 dagen: {{ rain2d_max }} mm"
               data:
                 actions:
                   - action: START_SPRINKLER
@@ -100,26 +98,21 @@ action:
 
     default:
 
-      # LINKS
-      - service: switch.turn_on
-        target:
-          entity_id: !input sprinkler_left
+      # -------------------------
+      # 🚰 DYNAMISCHE ZONES LOOP
+      # -------------------------
+      - repeat:
+          for_each: "{{ zones }}"
+          sequence:
 
-      - delay: "00:15:00"
+            - service: switch.turn_on
+              target:
+                entity_id: "{{ repeat.item.entity }}"
 
-      - service: switch.turn_off
-        target:
-          entity_id: !input sprinkler_left
+            - delay: "{{ zone_duration }}"
 
-      - delay: "00:01:00"
+            - service: switch.turn_off
+              target:
+                entity_id: "{{ repeat.item.entity }}"
 
-      # RECHTS
-      - service: switch.turn_on
-        target:
-          entity_id: !input sprinkler_right
-
-      - delay: "00:15:00"
-
-      - service: switch.turn_off
-        target:
-          entity_id: !input sprinkler_right
+            - delay: "{{ zone_pause }}"
