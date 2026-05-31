@@ -1,7 +1,6 @@
 blueprint:
-  name: Smart Irrigation Override (Adaptive Duration FIXED)
+  name: Smart Irrigation Override (Stable Adaptive)
   domain: automation
-  description: Handmatige override met slimme sproeitijd op basis van regenrisico
 
   input:
     notify_device:
@@ -10,50 +9,50 @@ blueprint:
         device: {}
 
     sprinkler_left:
+      name: Sprinkler links
       selector:
         entity:
           domain: switch
 
     sprinkler_right:
+      name: Sprinkler rechts
       selector:
         entity:
           domain: switch
-
-    rain_1d:
-      selector:
-        entity:
-          domain: sensor
-
-    rain_2d:
-      selector:
-        entity:
-          domain: sensor
-
-    action_name:
-      name: Notification action name
-      default: START_SPRINKLER
 
 trigger:
   - platform: event
     event_type: mobile_app_notification_action
     event_data:
-      action: !input action_name
-
-variables:
-  rain1d: "{{ states('sensor.bergschenhoek_maximum_rain_1d') | float(0) }}"
-  rain2d: "{{ states('sensor.buienradar_maximum_rain_2d') | float(0) }}"
-
-  # vaste durations (STRINGS, niet dynamisch delay template)
-  duration: >
-    {% if rain2d > 1 or rain1d > 0.8 %}
-      00:05:00
-    {% elif rain2d > 0.5 or rain1d > 0.4 %}
-      00:10:00
-    {% else %}
-      00:15:00
-    {% endif %}
+      action: START_SPRINKLER
 
 action:
+
+  - variables:
+      rain1d: "{{ states('sensor.bergschenhoek_maximum_rain_1d') | float(0) }}"
+      rain2d: "{{ states('sensor.buienradar_maximum_rain_2d') | float(0) }}"
+
+  - choose:
+
+      # 🌧️ NAT → kort
+      - conditions:
+          - condition: template
+            value_template: "{{ rain1d > 0.8 or rain2d > 1 }}"
+        sequence:
+          - variables:
+              duration: "00:05:00"
+
+      # 🌥️ HALF → medium
+      - conditions:
+          - condition: template
+            value_template: "{{ rain1d > 0.4 or rain2d > 0.5 }}"
+        sequence:
+          - variables:
+              duration: "00:10:00"
+
+    default:
+      - variables:
+          duration: "00:15:00"
 
   - action: notify.send_message
     target:
@@ -61,21 +60,15 @@ action:
     data:
       title: Sprinkler override
       message: >
-        Handmatig gestart
         Regen 1d: {{ rain1d }} mm / 2d: {{ rain2d }} mm
-        Tijd per zone: {{ duration }}
+        Duur per zone: {{ duration }}
 
-  # ---------------- LINKS ----------------
+  # LINKS
   - service: switch.turn_on
     target:
       entity_id: !input sprinkler_left
 
-  - delay:
-      hours: 0
-      minutes: 15
-      seconds: 0
-    condition: template
-    value_template: "{{ rain1d < 999 }}"  # dummy fix (HA workaround safe)
+  - delay: "{{ duration }}"
 
   - service: switch.turn_off
     target:
@@ -83,23 +76,13 @@ action:
 
   - delay: "00:01:00"
 
-  # ---------------- RECHTS ----------------
+  # RECHTS
   - service: switch.turn_on
     target:
       entity_id: !input sprinkler_right
 
-  - delay:
-      hours: 0
-      minutes: 15
-      seconds: 0
+  - delay: "{{ duration }}"
 
   - service: switch.turn_off
     target:
       entity_id: !input sprinkler_right
-
-  - action: notify.send_message
-    target:
-      device_id: !input notify_device
-    data:
-      title: Sprinkler override
-      message: Override afgerond
