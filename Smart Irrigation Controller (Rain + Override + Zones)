@@ -1,6 +1,5 @@
 blueprint:
-  name: Smart Irrigation Controller (Rain + Override + Zones)
-  description: Automatische irrigatie met regenlogica + handmatige override met slimme duur.
+  name: Smart Irrigation Controller (Clean + Actionable)
   domain: automation
 
   input:
@@ -10,56 +9,27 @@ blueprint:
         device: {}
 
     sprinkler_left:
-      name: Sprinkler links
       selector:
         entity:
           domain: switch
 
     sprinkler_right:
-      name: Sprinkler rechts
       selector:
         entity:
           domain: switch
-
-    rain_1d:
-      name: Regen 1 dag
-      selector:
-        entity:
-          domain: sensor
-
-    rain_max_1d:
-      name: Max regen 1 dag
-      selector:
-        entity:
-          domain: sensor
-
-    rain_max_2d:
-      name: Max regen 2 dagen
-      selector:
-        entity:
-          domain: sensor
-
-    override_action:
-      name: Override actie (notification action)
-      default: START_SPRINKLER
 
 trigger:
   - platform: time
     at: "21:00:00"
 
-variables:
-  rain1d: "{{ states(blueprint.inputs.rain_1d) | float(0) }}"
-  rain1d_max: "{{ states(blueprint.inputs.rain_max_1d) | float(0) }}"
-  rain2d_max: "{{ states(blueprint.inputs.rain_max_2d) | float(0) }}"
-
 action:
+
   - choose:
 
       # ---------------- SEIZOEN ----------------
       - conditions:
           - condition: template
-            value_template: >
-              {{ now().month < 5 or now().month > 10 }}
+            value_template: "{{ now().month < 5 or now().month > 10 }}"
         sequence:
           - action: notify.send_message
             target:
@@ -69,13 +39,14 @@ action:
               message: Buiten seizoen (mei–okt)
               data:
                 actions:
-                  - action: !input override_action
+                  - action: START_SPRINKLER
                     title: Toch sproeien
 
       # ---------------- REGEN 1D ----------------
       - conditions:
-          - condition: template
-            value_template: "{{ rain1d > 1.5 }}"
+          - condition: numeric_state
+            entity_id: sensor.bergschenhoek_rain_1d
+            above: 1.5
         sequence:
           - action: notify.send_message
             target:
@@ -83,16 +54,17 @@ action:
             data:
               title: Sprinkler overgeslagen
               message: >
-                Te nat: {{ rain1d }} mm afgelopen dag
+                Te nat: {{ states('sensor.bergschenhoek_rain_1d') }} mm
               data:
                 actions:
-                  - action: !input override_action
+                  - action: START_SPRINKLER
                     title: Toch sproeien
 
       # ---------------- REGEN VANDAAG ----------------
       - conditions:
-          - condition: template
-            value_template: "{{ rain1d_max > 0.4 }}"
+          - condition: numeric_state
+            entity_id: sensor.bergschenhoek_maximum_rain_1d
+            above: 0.4
         sequence:
           - action: notify.send_message
             target:
@@ -100,16 +72,18 @@ action:
             data:
               title: Sprinkler overgeslagen
               message: >
-                Regen verwacht vandaag: {{ rain1d_max }} mm
+                Regen verwacht vandaag:
+                {{ states('sensor.bergschenhoek_maximum_rain_1d') }} mm
               data:
                 actions:
-                  - action: !input override_action
+                  - action: START_SPRINKLER
                     title: Toch sproeien
 
       # ---------------- REGEN 2D ----------------
       - conditions:
-          - condition: template
-            value_template: "{{ rain2d_max > 0.8 }}"
+          - condition: numeric_state
+            entity_id: sensor.buienradar_maximum_rain_2d
+            above: 0.8
         sequence:
           - action: notify.send_message
             target:
@@ -117,10 +91,11 @@ action:
             data:
               title: Sprinkler overgeslagen
               message: >
-                Regen komende 2 dagen: {{ rain2d_max }} mm
+                Regen komende 2 dagen:
+                {{ states('sensor.buienradar_maximum_rain_2d') }} mm
               data:
                 actions:
-                  - action: !input override_action
+                  - action: START_SPRINKLER
                     title: Toch sproeien
 
     default:
